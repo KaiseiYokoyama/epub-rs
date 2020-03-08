@@ -15,5 +15,8 @@ fn main() -> Result<(), failure::Error>{
 
     let mut epub = EPUBReader::new(path)?;
     // println!("{:?}", epub.package_document_paths());
+    for package_document in epub.package_documents {
+        println!("{:?}", package_document);
+    }
     Ok(())
 }
