@@ -31,7 +31,8 @@ impl EPUBReader<BufReader<File>> {
         })
     }
 
-    pub fn rootfiles(&mut self) -> Result<Vec<PathBuf>, Error> {
+
+    fn package_document_paths(&mut self) -> Result<Vec<PathBuf>, Error> {
         use xml::attribute::OwnedAttribute;
         use xml::reader::XmlEvent;
 
@@ -68,8 +69,8 @@ impl EPUBReader<BufReader<File>> {
         Ok(package_documents)
     }
 
-    pub fn rootfile(&mut self) -> Result<Option<PathBuf>, Error> {
-        self.rootfiles()
+    fn package_document_path(&mut self) -> Result<Option<PathBuf>, Error> {
+        self.package_document_paths()
             .map(|ps| ps.into_iter().next())
     }
 
