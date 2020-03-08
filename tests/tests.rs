@@ -1,4 +1,4 @@
-use epub_rs::*;
+use epub_rs::prelude::*;
 
 const PATH: &'static str = "tests/data/childrens-literature.epub";
 
