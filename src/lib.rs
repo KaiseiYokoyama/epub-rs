@@ -38,3 +38,148 @@ pub enum EPUBError {
         error: xml::reader::Error
     },
 }
+
+pub mod util {
+    use std::io::Read;
+    use std::iter::Peekable;
+    use xml::reader::*;
+    use failure::_core::ops::Deref;
+
+    #[derive(Debug)]
+    pub struct Xml {
+        vec: Vec<XmlElement>
+    }
+
+    impl Deref for Xml {
+        type Target = Vec<XmlElement>;
+
+        fn deref(&self) -> &Self::Target {
+            &self.vec
+        }
+    }
+
+    impl Xml {
+        pub fn new<R: Read>(iter: &mut Peekable<Events<R>>) -> Self {
+            let mut vec = Vec::new();
+
+            while let Some(_) = iter.peek() {
+                if let Some(elem) = XmlElement::new(iter) {
+                    vec.push(elem);
+                }
+            }
+
+            Self {
+                vec
+            }
+        }
+
+        pub fn get_by<F: FnMut(&XmlElement) -> bool>(&self, mut f: F) -> Option<&XmlElement> {
+            self.vec.iter()
+                .find_map(|e| e.get_by(&mut f))
+        }
+    }
+
+    #[derive(Debug)]
+    pub struct XmlElement {
+        pub event: XmlEvent,
+        pub children: Vec<XmlElement>,
+    }
+
+
+    impl XmlElement {
+        pub fn new<R: Read>(iter: &mut Peekable<Events<R>>) -> Option<Self> {
+            let mut children = Vec::new();
+
+            match iter.peek()?.as_ref().ok()? {
+                XmlEvent::CData(_)
+                | XmlEvent::Characters(_)
+                // | XmlEvent::Comment(_)
+                // | XmlEvent::Whitespace(_)
+                | XmlEvent::ProcessingInstruction { .. } => {
+                    let event = iter.next()?.ok()?;
+
+                    Some(Self {
+                        event,
+                        children,
+                    })
+                }
+                XmlEvent::StartElement { name, .. } => {
+                    let event = iter.next()?.ok()?;
+
+                    while let Some(Ok(event_peeked)) = iter.peek() {
+                        match event_peeked {
+                            XmlEvent::EndElement { name } => {
+                                return Some(Self {
+                                    event,
+                                    children,
+                                });
+                            }
+                            _ => {
+                                if let Some(child) = Self::new(iter) {
+                                    children.push(child);
+                                }
+                            }
+                        }
+                    }
+
+                    None
+                }
+                XmlEvent::StartDocument { .. } => {
+                    let event = iter.next()?.ok()?;
+
+                    while let Some(Ok(event_peeked)) = iter.peek() {
+                        match event_peeked {
+                            XmlEvent::EndDocument => {
+                                return Some(Self {
+                                    event,
+                                    children,
+                                });
+                            }
+                            _ => {
+                                if let Some(child) = Self::new(iter) {
+                                    children.push(child);
+                                }
+                            }
+                        }
+                    }
+
+                    None
+                }
+                _ => {
+                    let _ = iter.next();
+                    None
+                }
+            }
+        }
+
+        pub fn inner_text(&self) -> String {
+            self.children.iter()
+                .filter_map(|e| {
+                    match &e.event {
+                        XmlEvent::CData(cdata) => Some(cdata.to_string()),
+                        XmlEvent::Characters(characters) => Some(characters.to_string()),
+                        XmlEvent::StartDocument { .. } | XmlEvent::StartElement { .. } => {
+                            Some(e.inner_text())
+                        }
+                        XmlEvent::EndDocument
+                        | XmlEvent::EndElement { .. }
+                        | XmlEvent::Whitespace(..)
+                        | XmlEvent::ProcessingInstruction { .. }
+                        | XmlEvent::Comment(..) => {
+                            None
+                        }
+                    }
+                })
+                .fold(String::new(), |acc, s| acc + &s)
+        }
+
+        pub fn get_by<F: FnMut(&XmlElement) -> bool>(&self, f: &mut F) -> Option<&XmlElement> {
+            if f(self) {
+                Some(&self)
+            } else {
+                self.children.iter()
+                    .find(|&e| f(e))
+            }
+        }
+    }
+}
