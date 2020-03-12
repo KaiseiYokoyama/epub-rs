@@ -149,6 +149,8 @@ pub mod meta_data {
         /// UUID や DOI、ISBN など、特定のレンディションに関連付けられている識別子
         identifier: Vec<Identifier>,
         unique_identifier: Identifier,
+        /// EPUB 出版物に指定した名前のインスタンス
+        titles: Vec<Title>,
         attributes: HashMap<OwnedName, String>,
     }
 
@@ -186,11 +188,20 @@ pub mod meta_data {
                     err_msg: "Unique identifier element not found.".to_string()
                 })?;
 
+            let titles = meta_data_elem.children.iter()
+                .flat_map(|e| Title::try_from(e))
+                .collect::<Vec<Title>>();
+            // title要素の有無を確認する
+            titles.get(0)
+                .ok_or(EPUBError::PackageDocumentError {
+                    err_msg: "Title not found.".to_string()
+                })?;
 
             Ok(Self {
                 unique_identifier,
                 identifier,
                 attributes,
+                titles,
             })
         }
 
@@ -201,8 +212,16 @@ pub mod meta_data {
         pub fn identifiers(&self) -> &Vec<Identifier> {
             &self.identifier
         }
-    }
 
+        pub fn title(&self) -> Option<&Title> {
+            self.titles.get(0)
+        }
+
+        pub fn titles(&self) -> &Vec<Title> {
+            &self.title
+        }
+
+    }
 
     /// The identifier element contains an identifier associated with the given Rendition,
     /// such as a UUID, DOI or ISBN.
@@ -237,3 +256,104 @@ pub mod meta_data {
             }
         }
     }
+
+    /// The title element represents an instance of a name given to the EPUB Publication.
+    #[derive(Debug, Clone, Eq, PartialEq)]
+    pub struct Title {
+        pub title: String,
+        pub dir: Option<Dir>,
+        pub id: Option<String>,
+        pub xml_lang: Option<String>,
+    }
+
+    impl TryFrom<&XmlElement> for Title {
+        type Error = ();
+
+        fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
+            // println!("{}, {:?}", line!(), &value);
+            match &value.event {
+                XmlEvent::StartElement {
+                    name,
+                    attributes, ..
+                } => {
+                    if &name.prefix == &Some("dc".to_string()) && &name.local_name == "title" {
+                        let title = value.inner_text();
+
+                        let dir = attributes.iter()
+                            .find_map(|a|
+                                if &a.name.local_name == "dir" {
+                                    a.value.as_str().try_into().ok()
+                                } else { None }
+                            );
+
+                        let id = attributes.iter()
+                            .find_map(|a| {
+                                if &a.name.local_name == "id" {
+                                    Some(a.value.to_string())
+                                } else { None }
+                            });
+
+                        let xml_lang = attributes.iter()
+                            .find_map(|a|
+                                if &a.name.local_name == "lang" && &a.name.prefix == &Some("xml".to_string()) {
+                                    Some(a.value.to_string())
+                                } else { None }
+                            );
+
+                        Ok(Title {
+                            title,
+                            dir,
+                            id,
+                            xml_lang,
+                        })
+                    } else { Err(()) }
+                }
+                _ => Err(())
+            }
+        }
+    }
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::read::EPUBReader;
+        use failure::Error;
+
+        const PATH: &'static str = "tests/data/childrens-literature.epub";
+
+        #[test]
+        fn unique_identifier() -> Result<(), Error> {
+            let reader = EPUBReader::new(PATH)?;
+
+            if let Some(pd) = reader.package_document() {
+                let unique_id = Identifier {
+                    id: Some("id".to_string()),
+                    identifier: "http://www.gutenberg.org/ebooks/25545".to_string()
+                };
+                assert_eq!(&unique_id, pd.meta_data.unique_identifier());
+            } else {
+                debug_assert!(false, "No Package Documents.")
+            }
+
+            Ok(())
+        }
+
+        #[test]
+        fn title() -> Result<(), Error> {
+            let reader = EPUBReader::new(PATH)?;
+
+            if let Some(pd) = reader.package_document() {
+                let title = Title {
+                    title: "Children\'s Literature".into(),
+                    dir: None,
+                    id: Some("t1".into()),
+                    xml_lang: None,
+                };
+                assert_eq!(Some(&title),pd.meta_data.title());
+            } else {
+                debug_assert!(false, "No Package Documents");
+            }
+
+            Ok(())
+        }
+    }
+}

@@ -85,7 +85,6 @@ pub mod util {
         pub children: Vec<XmlElement>,
     }
 
-
     impl XmlElement {
         pub fn new<R: Read>(iter: &mut Peekable<Events<R>>) -> Option<Self> {
             let mut children = Vec::new();
