@@ -45,9 +45,9 @@ pub mod util {
     use xml::reader::*;
     use failure::_core::ops::Deref;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Xml {
-        vec: Vec<XmlElement>
+        pub vec: Vec<XmlElement>
     }
 
     impl Deref for Xml {
@@ -79,7 +79,7 @@ pub mod util {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct XmlElement {
         pub event: XmlEvent,
         pub children: Vec<XmlElement>,
@@ -93,8 +93,8 @@ pub mod util {
             match iter.peek()?.as_ref().ok()? {
                 XmlEvent::CData(_)
                 | XmlEvent::Characters(_)
-                // | XmlEvent::Comment(_)
-                // | XmlEvent::Whitespace(_)
+                | XmlEvent::Comment(_)
+                | XmlEvent::Whitespace(_)
                 | XmlEvent::ProcessingInstruction { .. } => {
                     let event = iter.next()?.ok()?;
 
@@ -104,46 +104,51 @@ pub mod util {
                     })
                 }
                 XmlEvent::StartElement { name, .. } => {
+                    let start_name = name.clone();
                     let event = iter.next()?.ok()?;
 
-                    while let Some(Ok(event_peeked)) = iter.peek() {
-                        match event_peeked {
-                            XmlEvent::EndElement { name } => {
+                    while let Some(child) = Self::new(iter) {
+                        children.push(child);
+
+                        match iter.peek()?.as_ref().ok()? {
+                            XmlEvent::EndElement { name } if &start_name == name => {
+                                let _ = iter.next();
                                 return Some(Self {
                                     event,
                                     children,
                                 });
                             }
-                            _ => {
-                                if let Some(child) = Self::new(iter) {
-                                    children.push(child);
-                                }
-                            }
+                            _ => {}
                         }
                     }
 
-                    None
+                    Some(Self {
+                        event,
+                        children,
+                    })
                 }
                 XmlEvent::StartDocument { .. } => {
                     let event = iter.next()?.ok()?;
 
-                    while let Some(Ok(event_peeked)) = iter.peek() {
-                        match event_peeked {
+                    while let Some(child) = Self::new(iter) {
+                        children.push(child);
+
+                        match iter.peek()?.as_ref().ok()? {
                             XmlEvent::EndDocument => {
+                                let _ = iter.next();
                                 return Some(Self {
                                     event,
                                     children,
                                 });
                             }
-                            _ => {
-                                if let Some(child) = Self::new(iter) {
-                                    children.push(child);
-                                }
-                            }
+                            _ => {}
                         }
                     }
 
-                    None
+                    Some(Self {
+                        event,
+                        children,
+                    })
                 }
                 _ => {
                     let _ = iter.next();
