@@ -8,6 +8,7 @@ use xml::reader::XmlEvent;
 
 use failure::Error;
 use meta_data::Metadata;
+use failure::_core::convert::TryFrom;
 
 #[derive(Debug)]
 pub struct PackageDocument {
@@ -126,8 +127,21 @@ pub enum Dir {
     rtl,
 }
 
+impl TryFrom<&str> for Dir {
+    type Error = ();
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "ltr" => Ok(Dir::ltr),
+            "rtl" => Ok(Dir::rtl),
+            _ => Err(())
+        }
+    }
+}
+
 pub mod meta_data {
     use super::*;
+    use failure::_core::convert::{TryFrom, TryInto};
 
     /// EPUBのパッケージドキュメントに記載された<metadata>要素, およびそのコンテンツ
     #[derive(Debug)]
@@ -161,30 +175,7 @@ pub mod meta_data {
                 .collect::<HashMap<OwnedName, String>>();
 
             let identifier = meta_data_elem.children.iter()
-                // dc::identifier属性のみをfilter
-                .filter(|&e| {
-                    match &e.event {
-                        XmlEvent::StartElement {
-                            name, ..
-                        } => {
-                            &name.prefix == &Some("dc".to_string()) && &name.local_name == "identifier"
-                        }
-                        _ => false
-                    }
-                })
-                .map(|e| {
-                    let identifier = e.inner_text();
-                    let id = if let XmlEvent::StartElement { attributes, .. } = &e.event {
-                        attributes.iter()
-                            .find_map(|a| {
-                                if &a.name.local_name == "id" {
-                                    Some(a.value.to_string())
-                                } else { None }
-                            })
-                    } else { None };
-
-                    Identifier { id, identifier }
-                })
+                .flat_map(|e| Identifier::try_from(e))
                 .collect::<Vec<Identifier>>();
 
             let unique_identifier = identifier.iter()
@@ -212,9 +203,37 @@ pub mod meta_data {
         }
     }
 
+
+    /// The identifier element contains an identifier associated with the given Rendition,
+    /// such as a UUID, DOI or ISBN.
     #[derive(Debug, Clone, Eq, PartialEq)]
     pub struct Identifier {
         pub id: Option<String>,
         pub identifier: String,
     }
-}
+
+    impl TryFrom<&XmlElement> for Identifier {
+        type Error = ();
+
+        fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
+            match &value.event {
+                XmlEvent::StartElement {
+                    name,
+                    attributes, ..
+                } => {
+                    if &name.prefix == &Some("dc".to_string()) && &name.local_name == "identifier" {
+                        let identifier = value.inner_text();
+                        let id = attributes.iter()
+                            .find_map(|a| {
+                                if &a.name.local_name == "id" {
+                                    Some(a.value.to_string())
+                                } else { None }
+                            });
+
+                        Ok(Identifier { id, identifier })
+                    } else { Err(()) }
+                }
+                _ => Err(())
+            }
+        }
+    }
