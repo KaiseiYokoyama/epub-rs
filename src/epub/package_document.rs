@@ -151,6 +151,8 @@ pub mod meta_data {
         unique_identifier: Identifier,
         /// EPUB 出版物に指定した名前のインスタンス
         titles: Vec<Title>,
+        /// 指定されたレンディションのコンテンツの言語
+        languages: Vec<Language>,
         attributes: HashMap<OwnedName, String>,
     }
 
@@ -197,11 +199,21 @@ pub mod meta_data {
                     err_msg: "Title not found.".to_string()
                 })?;
 
+            let languages = meta_data_elem.children.iter()
+                .flat_map(|e| Language::try_from(e))
+                .collect::<Vec<Language>>();
+            // language要素の有無を確認する
+            languages.get(0)
+                .ok_or(EPUBError::PackageDocumentError {
+                    err_msg: "Language not found.".to_string()
+                })?;
+
             Ok(Self {
                 unique_identifier,
                 identifier,
                 attributes,
                 titles,
+                languages,
             })
         }
 
@@ -218,9 +230,12 @@ pub mod meta_data {
         }
 
         pub fn titles(&self) -> &Vec<Title> {
-            &self.title
+            &self.titles
         }
 
+        pub fn language(&self) -> Option<&Language> { self.languages.get(0) }
+
+        pub fn languages(&self) -> &Vec<Language> { &self.languages }
     }
 
     /// The identifier element contains an identifier associated with the given Rendition,
@@ -312,17 +327,60 @@ pub mod meta_data {
             }
         }
     }
+
+    /// The language element specifies the language of the content of the given Rendition.
+    /// This value is not inherited by the individual resources of the Rendition.
+    #[derive(Debug, Clone, Eq, PartialEq)]
+    pub struct Language {
+        language: String,
+        id: Option<String>,
+    }
+
+    impl TryFrom<&XmlElement> for Language {
+        type Error = ();
+
+        fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
+            match &value.event {
+                XmlEvent::StartElement {
+                    name,
+                    attributes,..
+                } if &name.prefix ==&Some("dc".to_string())
+                    && &name.local_name == "language" => {
+                    let language = value.inner_text();
+                    let id = attributes.iter()
+                        .find_map(|a| {
+                            if &a.name.local_name == "id" {
+                                Some(a.value.to_string())
+                            } else { None }
+                        });
+
+                    Ok(Language {
+                        language,
+                        id,
+                    })
+                }
+                _ => Err(())
+            }
+        }
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
         use crate::read::EPUBReader;
         use failure::Error;
+        use std::io::BufReader;
+        use std::fs::File;
 
         const PATH: &'static str = "tests/data/childrens-literature.epub";
 
+        fn reader() -> Result<EPUBReader<BufReader<File>>, Error> {
+            EPUBReader::new(PATH)
+        }
+
         #[test]
         fn unique_identifier() -> Result<(), Error> {
-            let reader = EPUBReader::new(PATH)?;
+            let reader = reader()?;
 
             if let Some(pd) = reader.package_document() {
                 let unique_id = Identifier {
@@ -339,7 +397,7 @@ pub mod meta_data {
 
         #[test]
         fn title() -> Result<(), Error> {
-            let reader = EPUBReader::new(PATH)?;
+            let reader = reader()?;
 
             if let Some(pd) = reader.package_document() {
                 let title = Title {
@@ -349,6 +407,23 @@ pub mod meta_data {
                     xml_lang: None,
                 };
                 assert_eq!(Some(&title),pd.meta_data.title());
+            } else {
+                debug_assert!(false, "No Package Documents");
+            }
+
+            Ok(())
+        }
+
+        #[test]
+        fn language() -> Result<(), Error> {
+            let reader = reader()?;
+
+            if let Some(pd) = reader.package_document() {
+                let language = Language {
+                    language: "en".into(),
+                    id: None
+                };
+                assert_eq!(Some(&language), pd.meta_data.language());
             } else {
                 debug_assert!(false, "No Package Documents");
             }
