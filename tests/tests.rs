@@ -39,14 +39,3 @@ fn meta_data() -> Result<(), failure::Error> {
 
     Ok(())
 }
-
-#[test]
-fn xml() -> Result<(), failure::Error> {
-    let file = std::fs::File::open("tests/data/sample_package.opf")?;
-    let mut xml_reader = xml::reader::EventReader::new(file);
-
-    let xml = epub_rs::util::Xml::new(&mut xml_reader.into_iter().peekable());
-    debug_assert!(false, "{:?}", xml);
-
-    Ok(())
-}
