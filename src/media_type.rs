@@ -1,45 +1,57 @@
-use crate::EPUBError;
 use std::str::FromStr;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 
 /// https://imagedrive.github.io/spec/epub30-publications.xhtml#tbl-core-media-types
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum MediaType {
     Image(ImageType),
     Application(ApplicationType),
     Audio(AudioType),
     Text(TextType),
+    NonCoreMediaType(String),
 }
 
 impl FromStr for MediaType {
-    type Err = failure::Error;
+    type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Option::None
+        let vec:Vec<&str> = s.split('/').collect();
+        if let (Some(prefix), Some(detail)) = (vec.get(0), vec.get(1)) {
+            match prefix {
+                &"image" => ImageType::from_str(detail).map(|i| MediaType::Image(i)),
+                &"application" => ApplicationType::from_str(detail).map(|i| MediaType::Application(i)),
+                &"audio" => AudioType::from_str(detail).map(|i| MediaType::Audio(i)),
+                &"text" => TextType::from_str(detail).map(|i| MediaType::Text(i)),
+                _ => Ok(MediaType::NonCoreMediaType(s.to_string()))
+            }
+        } else {Err(())}
+    }
+}
+
+impl TryFrom<&PathBuf> for MediaType {
+    type Error = ();
+
+    fn try_from(value: &PathBuf) -> Result<Self, Self::Error> {
+        Err(())
             .or(
-                ImageType::from_str(s).ok().map(|t| MediaType::Image(t))
+                ImageType::try_from(value).map(|i| MediaType::Image(i))
             )
             .or(
-                ApplicationType::from_str(s).ok().map(|t| MediaType::Application(t))
+                ApplicationType::try_from(value).map(|i| MediaType::Application(i))
             )
             .or(
-                AudioType::from_str(s).ok().map(|t| MediaType::Audio(t))
+                AudioType::try_from(value).map(|i| MediaType::Audio(i))
             )
             .or(
-                TextType::from_str(s).ok().map(|t| MediaType::Text(t))
-            )
-            .ok_or(
-                EPUBError::MediaTypeError {
-                    err_msg: format!("Invalid extension: {}", s)
-                }.into()
+                TextType::try_from(value).map(|i| MediaType::Text(i))
             )
     }
 }
 
 impl Default for MediaType {
     fn default() -> Self {
-        MediaType::Application(ApplicationType::XHTML)
+        MediaType::Application(ApplicationType::XhtmlXml)
     }
 }
 
@@ -50,22 +62,12 @@ impl ToString for MediaType {
             MediaType::Application(t) => format!("application/{}", &t.to_string()),
             MediaType::Audio(t) => format!("audio/{}", &t.to_string()),
             MediaType::Text(t) => format!("text/{}", t.to_string()),
+            MediaType::NonCoreMediaType(s) => s.clone(),
         }
     }
 }
 
-impl TryFrom<&PathBuf> for MediaType {
-    type Error = failure::Error;
-
-    fn try_from(value: &PathBuf) -> Result<Self, Self::Error> {
-        let ext = value.extension()
-            .map(|s| s.to_str().unwrap_or(""))
-            .unwrap_or("");
-        Ok(MediaType::from_str(&ext)?)
-    }
-}
-
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum ImageType {
     GIF,
     JPEG,
@@ -74,18 +76,34 @@ pub enum ImageType {
 }
 
 impl FromStr for ImageType {
-    type Err = failure::Error;
+    type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "gif" => Ok(ImageType::GIF),
+            "jpeg" => Ok(ImageType::JPEG),
+            "png" => Ok(ImageType::PNG),
+            "svg+xml" => Ok(ImageType::SVG),
+            _ => Err(())
+        }
+    }
+}
+
+impl TryFrom<&PathBuf> for ImageType {
+    type Error = ();
+
+    fn try_from(value: &PathBuf) -> Result<Self, Self::Error> {
+        let ext = value.extension()
+            .map(|os| os.to_str())
+            .flatten()
+            .ok_or(())?;
+
+        match ext {
+            "gif" => Ok(ImageType::GIF),
             "jpeg" | "jpg" | "jpe" => Ok(ImageType::JPEG),
             "png" => Ok(ImageType::PNG),
             "svg" | "svgz" => Ok(ImageType::SVG),
-            _ =>
-                Err(EPUBError::MediaTypeError {
-                    err_msg: format!("Invalid extension: {}", s)
-                }.into())
+            _ => Err(())
         }
     }
 }
@@ -101,10 +119,10 @@ impl ToString for ImageType {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum ApplicationType {
     /// XHTML Content Document と EPUB Navigation Document
-    XHTML,
+    XhtmlXml,
     /// OpenType Font
     OpenType,
     /// WOFF Font
@@ -120,7 +138,27 @@ impl FromStr for ApplicationType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "xhtml" | "xht" => Ok(ApplicationType::XHTML),
+            "xhtml+xml" => Ok(ApplicationType::XhtmlXml),
+            "vnd.ms-opentype" => Ok(ApplicationType::OpenType),
+            "font-woff" => Ok(ApplicationType::WOFF),
+            "smil+xml" => Ok(ApplicationType::MediaOverlays),
+            "pls+xml" => Ok(ApplicationType::PLS),
+            _ => Err(())
+        }
+    }
+}
+
+impl TryFrom<&PathBuf> for ApplicationType {
+    type Error = ();
+
+    fn try_from(value: &PathBuf) -> Result<Self, Self::Error> {
+        let ext = value.extension()
+            .map(|os| os.to_str())
+            .flatten()
+            .ok_or(())?;
+
+        match ext {
+            "xhtml" | "xht" => Ok(ApplicationType::XhtmlXml),
             "otf" | "otc" | "ttf" | "ttc" => Ok(ApplicationType::OpenType),
             "woff" | "woff2" => Ok(ApplicationType::WOFF),
             "smil" => Ok(ApplicationType::MediaOverlays),
@@ -133,7 +171,7 @@ impl FromStr for ApplicationType {
 impl ToString for ApplicationType {
     fn to_string(&self) -> String {
         match self {
-            ApplicationType::XHTML => "xhtml+xml",
+            ApplicationType::XhtmlXml => "xhtml+xml",
             ApplicationType::OpenType => "vnd.ms-opentype",
             ApplicationType::WOFF => "font-woff",
             ApplicationType::MediaOverlays => "smil+xml",
@@ -142,7 +180,7 @@ impl ToString for ApplicationType {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum AudioType {
     /// MP3 オーディオ
     MPEG,
@@ -151,16 +189,30 @@ pub enum AudioType {
 }
 
 impl FromStr for AudioType {
-    type Err = failure::Error;
+    type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "mpeg" => Ok(AudioType::MPEG),
+            "mp4" => Ok(AudioType::MP4),
+            _ => Err(())
+        }
+    }
+}
+
+impl TryFrom<&PathBuf> for AudioType {
+    type Error = ();
+
+    fn try_from(value: &PathBuf) -> Result<Self, Self::Error> {
+        let ext = value.extension()
+            .map(|os| os.to_str())
+            .flatten()
+            .ok_or(())?;
+
+        match ext {
             "mp3" => Ok(AudioType::MPEG),
             "aac" | "mp4" => Ok(AudioType::MP4),
-            _ =>
-                Err(EPUBError::MediaTypeError {
-                    err_msg: format!("Invalid extension: {}", s)
-                }.into())
+            _ => Err(())
         }
     }
 }
@@ -174,7 +226,7 @@ impl ToString for AudioType {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum TextType {
     CSS,
     JS,
@@ -185,6 +237,23 @@ impl FromStr for TextType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "css" => Ok(TextType::CSS),
+            "javascript" => Ok(TextType::JS),
+            _ => Err(())
+        }
+    }
+}
+
+impl TryFrom<&PathBuf> for TextType {
+    type Error = ();
+
+    fn try_from(value: &PathBuf) -> Result<Self, Self::Error> {
+        let ext = value.extension()
+            .map(|os| os.to_str())
+            .flatten()
+            .ok_or(())?;
+
+        match ext {
             "css" => Ok(TextType::CSS),
             "js" => Ok(TextType::JS),
             _ => Err(())

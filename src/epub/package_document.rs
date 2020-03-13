@@ -4,11 +4,13 @@ use std::io::Read;
 use crate::{EPUBError, util::*};
 
 use xml::name::OwnedName;
+use xml::attribute::OwnedAttribute;
 use xml::reader::XmlEvent;
 
 use failure::Error;
 use meta_data::Metadata;
-use failure::_core::convert::TryFrom;
+use manifest::Manifest;
+use failure::_core::convert::{TryFrom, TryInto};
 
 #[derive(Debug)]
 pub struct PackageDocument {
@@ -16,6 +18,7 @@ pub struct PackageDocument {
     pub unique_identifier: String,
     pub version: String,
     pub meta_data: Metadata,
+    pub manifest: Manifest,
 }
 
 impl PackageDocument {
@@ -40,21 +43,6 @@ impl PackageDocument {
                 } => (e, attributes),
                 _ => unreachable!()
             })?;
-        // let (package_element, attributes) = xml.iter()
-        //     .find_map(|e| match &e.event {
-        //         XmlEvent::StartElement {
-        //             name,
-        //             attributes, ..
-        //         } => if &name.local_name == "package" {
-        //             Some((e, attributes))
-        //         } else {
-        //             None
-        //         }
-        //         _ => None
-        //     })
-        //     .ok_or(EPUBError::PackageDocumentError {
-        //         err_msg: "Package element not found.".to_string()
-        //     })?;
 
         let attributes = attributes.into_iter()
             .map(|atr| (atr.name.clone(), atr.value.clone()))
@@ -82,12 +70,15 @@ impl PackageDocument {
 
         let meta_data = Metadata::new(package_element, &unique_identifier)?;
 
+        let manifest = Manifest::new(package_element)?;
+
         Ok(
             Self {
                 attributes,
                 unique_identifier,
                 version,
                 meta_data,
+                manifest,
             }
         )
     }
@@ -138,13 +129,66 @@ impl TryFrom<&str> for Dir {
     }
 }
 
+trait Element {
+    fn name() -> OwnedName;
+    fn from_xml_element<T, F>(value: &XmlElement, f: F) -> Option<T>
+        where F: FnOnce(&XmlElement, &Vec<OwnedAttribute>) -> T
+    {
+        match &value.event {
+            XmlEvent::StartElement {
+                name,
+                attributes, ..
+            } if name == &Self::name() => {
+                Some(f(value, attributes))
+            }
+            _ => None,
+        }
+    }
+    fn id(attrs: &Vec<OwnedAttribute>) -> Option<String> {
+        Self::get_attr(attrs,"id")
+        // attrs.iter()
+        //     .find_map(|a| {
+        //         if &a.name.local_name == "id" {
+        //             Some(a.value.to_string())
+        //         } else { None }
+        //     })
+    }
+    fn dir(attrs: &Vec<OwnedAttribute>) -> Option<Dir> {
+        Self::get_attr(attrs, "dir")
+            .map(|a| a.as_str().try_into().ok())
+            .flatten()
+        // attrs.iter()
+        //     .find_map(|a|
+        //         if &a.name.local_name == "dir" {
+        //             a.value.as_str().try_into().ok()
+        //         } else { None }
+        //     )
+    }
+    fn xml_lang(attrs: &Vec<OwnedAttribute>) -> Option<String> {
+        attrs.iter()
+            .find_map(|a|
+                if &a.name.local_name == "lang" && &a.name.prefix == &Some("xml".to_string()) {
+                    Some(a.value.to_string())
+                } else { None }
+            )
+    }
+    fn get_attr(attrs: &Vec<OwnedAttribute>, key: &str) -> Option<String> {
+        attrs.iter()
+            .find_map(|a| {
+                if &a.name.local_name == key {
+                    Some(a.value.to_string())
+                } else { None }
+            })
+    }
+}
+
 pub mod meta_data {
     use super::*;
-    use failure::_core::convert::{TryFrom, TryInto};
-    use xml::attribute::OwnedAttribute;
+    use failure::_core::convert::{TryFrom};
+
     use failure::_core::str::FromStr;
 
-    ///! todo meta要素への対応
+    ///! todo meta, link要素への対応
 
     /// EPUBのパッケージドキュメントに記載された<metadata>要素, およびそのコンテンツ
     #[derive(Debug)]
@@ -245,48 +289,6 @@ pub mod meta_data {
         pub fn language(&self) -> Option<&Language> { self.languages.get(0) }
 
         pub fn languages(&self) -> &Vec<Language> { &self.languages }
-    }
-
-    trait Element {
-        fn name() -> OwnedName;
-        fn from_xml_element<T, F>(value: &XmlElement, f: F) -> Option<T>
-            where T: Element,
-                  F: FnOnce(&XmlElement, &Vec<OwnedAttribute>) -> T
-        {
-            match &value.event {
-                XmlEvent::StartElement {
-                    name,
-                    attributes, ..
-                } if name == &Self::name() => {
-                    Some(f(value, attributes))
-                }
-                _ => None,
-            }
-        }
-        fn id(attrs: &Vec<OwnedAttribute>) -> Option<String> {
-            attrs.iter()
-                .find_map(|a| {
-                    if &a.name.local_name == "id" {
-                        Some(a.value.to_string())
-                    } else { None }
-                })
-        }
-        fn dir(attrs: &Vec<OwnedAttribute>) -> Option<Dir> {
-            attrs.iter()
-                .find_map(|a|
-                    if &a.name.local_name == "dir" {
-                        a.value.as_str().try_into().ok()
-                    } else { None }
-                )
-        }
-        fn xml_lang(attrs: &Vec<OwnedAttribute>) -> Option<String> {
-            attrs.iter()
-                .find_map(|a|
-                    if &a.name.local_name == "lang" && &a.name.prefix == &Some("xml".to_string()) {
-                        Some(a.value.to_string())
-                    } else { None }
-                )
-        }
     }
 
     /// The identifier element contains an identifier associated with the given Rendition,
@@ -572,12 +574,12 @@ pub mod meta_data {
                              xml_lang: None,
                          },
                          OptionalElement {
-                            name: date,
-                            value: "2008-05-20".into(),
-                            dir: None,
-                            id: None,
-                            xml_lang: None,
-                        },
+                             name: date,
+                             value: "2008-05-20".into(),
+                             dir: None,
+                             id: None,
+                             xml_lang: None,
+                         },
                          OptionalElement {
                              name: subject,
                              value: "Children -- Books and reading".into(),
@@ -586,12 +588,12 @@ pub mod meta_data {
                              xml_lang: None,
                          },
                          OptionalElement {
-                            name: subject,
-                            value: "Children\'s literature -- Study and teaching".into(),
-                            dir: None,
-                            id: None,
-                            xml_lang: None,
-                        },
+                             name: subject,
+                             value: "Children\'s literature -- Study and teaching".into(),
+                             dir: None,
+                             id: None,
+                             xml_lang: None,
+                         },
                          OptionalElement {
                              name: source,
                              value: "http://www.gutenberg.org/files/25545/25545-h/25545-h.htm".into(),
@@ -607,10 +609,248 @@ pub mod meta_data {
                              xml_lang: None,
                          }];
                 let correct_set = &correct.iter()
-                        .collect::<std::collections::HashSet<&OptionalElement>>();
+                    .collect::<std::collections::HashSet<&OptionalElement>>();
                 assert_eq!(correct_set, optionals);
             } else {
                 debug_assert!(false, "No Package Documents");
+            }
+
+            Ok(())
+        }
+    }
+}
+
+pub mod manifest {
+    use super::*;
+    use std::collections::HashSet;
+    use crate::media_type::MediaType;
+    use failure::_core::str::FromStr;
+
+    ///! レンディションを構成する出版物リソースの完全なリスト
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct Manifest {
+        id: Option<String>,
+        items: HashSet<Item>,
+    }
+
+    impl Manifest {
+        pub fn new(package_element: &XmlElement) -> Result<Self, Error> {
+            let (manifest_elem, attributes) = package_element.children.iter()
+                .find_map(|e| match &e.event {
+                    XmlEvent::StartElement {
+                        name,
+                        attributes, ..
+                    } => if &name.local_name == "manifest" {
+                        Some((e, attributes))
+                    } else {
+                        None
+                    }
+                    _ => None
+                })
+                .ok_or(EPUBError::PackageDocumentError {
+                    err_msg: "Manifest element not found.".to_string()
+                })?;
+
+            // dbg!(&manifest_elem);
+
+            let id = attributes.iter()
+                .find_map(|a| if &a.name.local_name == "id" {
+                    Some(a.value.to_string())
+                } else { None });
+
+            let items = manifest_elem.children.iter()
+                .flat_map(|e| Item::try_from(e))
+                .collect();
+
+            Ok(Self { id, items })
+        }
+    }
+
+    #[derive(Eq, PartialEq, Hash, Debug)]
+    pub struct Item {
+        fallback: Option<String>,
+        href: String,
+        id: String,
+        media_overlay: Option<String>,
+        media_type: MediaType,
+        properties: Vec<Property>,
+    }
+
+    impl Element for Item {
+        fn name() -> OwnedName {
+            OwnedName {
+                prefix: None,
+                local_name: String::from("item"),
+                namespace: Some(String::from("http://www.idpf.org/2007/opf")),
+            }
+        }
+    }
+
+    impl TryFrom<&XmlElement> for Item {
+        type Error = ();
+        fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
+            Item::from_xml_element(value, |_elem, attrs| {
+                let fallback = Item::get_attr(attrs, "fallback");
+                let id = Item::id(attrs)?;
+                    // .ok_or(EPUBError::PackageDocumentError {
+                    //     err_msg: "ID is undefined on <item>".to_string()
+                    // })?;
+                let href = Item::get_attr(attrs,"href")?;
+                    // .ok_or(EPUBError::PackageDocumentError {
+                    //     err_msg: "Href is undefined on <item>".to_string()
+                    // })?;
+                let media_overlay = Item::get_attr(attrs,"media-overlay");
+                let media_type = Item::get_attr(attrs, "media-type")
+                    .map(|s| MediaType::from_str(&s).ok())
+                    .flatten()?;
+                    // .ok_or(EPUBError::PackageDocumentError {
+                    //     err_msg: "Media-type is undefined on <item>".to_string()
+                    // })?;
+                let properties = Item::get_attr(attrs, "properties")
+                    .iter()
+                    .flat_map(|s| s.split_whitespace())
+                    .flat_map(|s| Property::from_str(s))
+                    .collect::<Vec<Property>>();
+
+                Some(
+                    Item {
+                        fallback,
+                        href,
+                        id,
+                        media_overlay,
+                        media_type,
+                        properties
+                    }
+                )
+            })
+                .flatten()
+                .ok_or(())
+        }
+    }
+
+    #[allow(non_camel_case_types)]
+    #[derive(Eq, PartialEq, Copy, Clone, Debug, Hash)]
+    pub enum Property {
+        cover_image,
+        mathml,
+        nav,
+        remote_resources,
+        scripted,
+        svg,
+        switch,
+    }
+
+    impl FromStr for Property {
+        type Err = ();
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            use Property::*;
+            match s {
+                "cover-image" => Ok(cover_image),
+                "mathml" => Ok(mathml),
+                "nav" => Ok(nav),
+                "remote_resources" => Ok(remote_resources),
+                "scripted" => Ok(scripted),
+                "svg" => Ok(svg),
+                "switch" => Ok(switch),
+                _ => Err(())
+            }
+        }
+    }
+
+    impl ToString for Property {
+        fn to_string(&self) -> String {
+            use Property::*;
+            match &self {
+                cover_image => "cover-image".to_string(),
+                remote_resources => "remote-resources".to_string(),
+                _ => format!("{:?}", &self)
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::read::EPUBReader;
+        use failure::Error;
+        use std::io::BufReader;
+        use std::fs::File;
+
+        const PATH: &'static str = "tests/data/childrens-literature.epub";
+
+        fn reader() -> Result<EPUBReader<BufReader<File>>, Error> {
+            EPUBReader::new(PATH)
+        }
+
+        #[test]
+        fn manifest() -> Result<(), Error>{
+            use super::Property::*;
+            use crate::media_type::{MediaType::*,
+                                    ImageType::*,
+                                    ApplicationType::*,
+                                    TextType::*};
+
+            let reader = reader()?;
+
+            if let Some(pd) = reader.package_document() {
+                let manifest = &pd.manifest;
+                let correct = Manifest {
+                    id: None,
+                    items: vec![
+                        Item {
+                            fallback: None,
+                            href: "cover.xhtml".into(),
+                            id: "cover".into(),
+                            media_overlay: None,
+                            media_type: Application(XhtmlXml),
+                            properties: vec![]
+                        },
+                        Item {
+                            fallback: None,
+                            href: "nav.xhtml".into(),
+                            id: "nav".into(),
+                            media_overlay: None,
+                            media_type: Application(XhtmlXml),
+                            properties: vec![nav, scripted]
+                        },
+                        Item {
+                            fallback: None,
+                            href: "images/cover.png".into(),
+                            id: "cover-img".into(),
+                            media_overlay: None,
+                            media_type: Image(PNG),
+                            properties: vec![cover_image]
+                        },
+                        Item {
+                            fallback: None,
+                            href: "css/epub.css".into(),
+                            id: "css01".into(),
+                            media_overlay: None,
+                            media_type: Text(CSS),
+                            properties: vec![]
+                        },
+                        Item {
+                            fallback: None,
+                            href: "css/nav.css".into(),
+                            id: "css02".into(),
+                            media_overlay: None,
+                            media_type: Text(CSS),
+                            properties: vec![]
+                        },
+                        Item {
+                            fallback: None,
+                            href: "s04.xhtml".into(),
+                            id: "s04".into(),
+                            media_overlay: None,
+                            media_type: Application(XhtmlXml),
+                            properties: vec![]
+                        }
+                    ].into_iter().collect()
+                };
+                assert_eq!(&correct, manifest);
+            } else {
+                debug_assert!(false, "No Package Documents.")
             }
 
             Ok(())
