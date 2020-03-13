@@ -90,11 +90,6 @@ impl EPUBReader<BufReader<File>> {
         Ok(package_documents)
     }
 
-    fn package_document_path(&mut self) -> Result<Option<PathBuf>, Error> {
-        self.package_document_paths()
-            .map(|ps| ps.into_iter().next())
-    }
-
     pub fn check_mimetype(&mut self) -> Result<(), Error> {
         let archive = &mut self.archive;
         let mut mimetype = archive.by_index(0)?;
