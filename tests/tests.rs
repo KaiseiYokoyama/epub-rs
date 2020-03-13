@@ -1,17 +1,23 @@
 use epub_rs::prelude::*;
+use std::io::BufReader;
+use std::fs::File;
 
 const PATH: &'static str = "tests/data/childrens-literature.epub";
 
+fn reader() -> Result<EPUBReader<BufReader<File>>, failure::Error> {
+    EPUBReader::new(PATH)
+}
+
 #[test]
 fn new_epub_reader() {
-    let reader = EPUBReader::new(PATH);
+    let reader = reader();
 
     debug_assert!(reader.is_ok(), "{:?}", reader);
 }
 
 #[test]
 fn package_attributes() -> Result<(), failure::Error>{
-    let reader = EPUBReader::new(PATH)?;
+    let reader = reader()?;
 
     if let Some(pd) = reader.package_document() {
         assert_eq!("id", &pd.unique_identifier);
