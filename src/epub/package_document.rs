@@ -145,7 +145,7 @@ trait Element {
         }
     }
     fn id(attrs: &Vec<OwnedAttribute>) -> Option<String> {
-        Self::get_attr(attrs,"id")
+        Self::get_attr(attrs, "id")
         // attrs.iter()
         //     .find_map(|a| {
         //         if &a.name.local_name == "id" {
@@ -184,7 +184,7 @@ trait Element {
 
 pub mod meta_data {
     use super::*;
-    use failure::_core::convert::{TryFrom};
+    use failure::_core::convert::TryFrom;
 
     use failure::_core::str::FromStr;
 
@@ -631,6 +631,8 @@ pub mod manifest {
     pub struct Manifest {
         id: Option<String>,
         items: HashSet<Item>,
+        cover_image: Option<Item>,
+        nav: Item,
     }
 
     impl Manifest {
@@ -651,22 +653,31 @@ pub mod manifest {
                     err_msg: "Manifest element not found.".to_string()
                 })?;
 
-            // dbg!(&manifest_elem);
-
             let id = attributes.iter()
                 .find_map(|a| if &a.name.local_name == "id" {
                     Some(a.value.to_string())
                 } else { None });
 
-            let items = manifest_elem.children.iter()
+            let items: HashSet<Item> = manifest_elem.children.iter()
                 .flat_map(|e| Item::try_from(e))
                 .collect();
 
-            Ok(Self { id, items })
+            let cover_image = items.iter()
+                .find(|i| i.properties.contains(&Property::cover_image))
+                .cloned();
+
+            let nav = items.iter()
+                .find(|i| i.properties.contains(&Property::nav))
+                .ok_or(EPUBError::PackageDocumentError {
+                    err_msg: "Navigation item not found in <manifest>".to_string()
+                })?
+                .clone();
+
+            Ok(Self { id, items, cover_image, nav })
         }
     }
 
-    #[derive(Eq, PartialEq, Hash, Debug)]
+    #[derive(Clone, Eq, PartialEq, Hash, Debug)]
     pub struct Item {
         fallback: Option<String>,
         href: String,
@@ -692,20 +703,20 @@ pub mod manifest {
             Item::from_xml_element(value, |_elem, attrs| {
                 let fallback = Item::get_attr(attrs, "fallback");
                 let id = Item::id(attrs)?;
-                    // .ok_or(EPUBError::PackageDocumentError {
-                    //     err_msg: "ID is undefined on <item>".to_string()
-                    // })?;
-                let href = Item::get_attr(attrs,"href")?;
-                    // .ok_or(EPUBError::PackageDocumentError {
-                    //     err_msg: "Href is undefined on <item>".to_string()
-                    // })?;
-                let media_overlay = Item::get_attr(attrs,"media-overlay");
+                // .ok_or(EPUBError::PackageDocumentError {
+                //     err_msg: "ID is undefined on <item>".to_string()
+                // })?;
+                let href = Item::get_attr(attrs, "href")?;
+                // .ok_or(EPUBError::PackageDocumentError {
+                //     err_msg: "Href is undefined on <item>".to_string()
+                // })?;
+                let media_overlay = Item::get_attr(attrs, "media-overlay");
                 let media_type = Item::get_attr(attrs, "media-type")
                     .map(|s| MediaType::from_str(&s).ok())
                     .flatten()?;
-                    // .ok_or(EPUBError::PackageDocumentError {
-                    //     err_msg: "Media-type is undefined on <item>".to_string()
-                    // })?;
+                // .ok_or(EPUBError::PackageDocumentError {
+                //     err_msg: "Media-type is undefined on <item>".to_string()
+                // })?;
                 let properties = Item::get_attr(attrs, "properties")
                     .iter()
                     .flat_map(|s| s.split_whitespace())
@@ -719,7 +730,7 @@ pub mod manifest {
                         id,
                         media_overlay,
                         media_type,
-                        properties
+                        properties,
                     }
                 )
             })
@@ -784,7 +795,7 @@ pub mod manifest {
         }
 
         #[test]
-        fn manifest() -> Result<(), Error>{
+        fn manifest() -> Result<(), Error> {
             use super::Property::*;
             use crate::media_type::{MediaType::*,
                                     ImageType::*,
@@ -804,7 +815,7 @@ pub mod manifest {
                             id: "cover".into(),
                             media_overlay: None,
                             media_type: Application(XhtmlXml),
-                            properties: vec![]
+                            properties: vec![],
                         },
                         Item {
                             fallback: None,
@@ -812,7 +823,7 @@ pub mod manifest {
                             id: "nav".into(),
                             media_overlay: None,
                             media_type: Application(XhtmlXml),
-                            properties: vec![nav, scripted]
+                            properties: vec![nav, scripted],
                         },
                         Item {
                             fallback: None,
@@ -820,7 +831,7 @@ pub mod manifest {
                             id: "cover-img".into(),
                             media_overlay: None,
                             media_type: Image(PNG),
-                            properties: vec![cover_image]
+                            properties: vec![cover_image],
                         },
                         Item {
                             fallback: None,
@@ -828,7 +839,7 @@ pub mod manifest {
                             id: "css01".into(),
                             media_overlay: None,
                             media_type: Text(CSS),
-                            properties: vec![]
+                            properties: vec![],
                         },
                         Item {
                             fallback: None,
@@ -836,7 +847,7 @@ pub mod manifest {
                             id: "css02".into(),
                             media_overlay: None,
                             media_type: Text(CSS),
-                            properties: vec![]
+                            properties: vec![],
                         },
                         Item {
                             fallback: None,
@@ -844,9 +855,25 @@ pub mod manifest {
                             id: "s04".into(),
                             media_overlay: None,
                             media_type: Application(XhtmlXml),
-                            properties: vec![]
+                            properties: vec![],
                         }
-                    ].into_iter().collect()
+                    ].into_iter().collect(),
+                    cover_image: Some(Item {
+                        fallback: None,
+                        href: "images/cover.png".into(),
+                        id: "cover-img".into(),
+                        media_overlay: None,
+                        media_type: Image(PNG),
+                        properties: vec![cover_image],
+                    }),
+                    nav: Item {
+                        fallback: None,
+                        href: "nav.xhtml".into(),
+                        id: "nav".into(),
+                        media_overlay: None,
+                        media_type: Application(XhtmlXml),
+                        properties: vec![nav, scripted],
+                    },
                 };
                 assert_eq!(&correct, manifest);
             } else {
