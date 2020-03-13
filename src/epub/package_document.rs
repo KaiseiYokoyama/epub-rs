@@ -27,8 +27,7 @@ impl PackageDocument {
         let (package_element, attributes) = xml
             .get_by(&Box::new(|e: &XmlElement| match &e.event {
                 XmlEvent::StartElement {
-                    name,
-                    attributes, ..
+                    name, ..
                 } => &name.local_name == "package",
                 _ => false
             }))
@@ -121,7 +120,7 @@ impl PackageDocument {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug, Hash)]
 pub enum Dir {
     ltr,
     rtl,
@@ -143,6 +142,9 @@ pub mod meta_data {
     use super::*;
     use failure::_core::convert::{TryFrom, TryInto};
     use xml::attribute::OwnedAttribute;
+    use failure::_core::str::FromStr;
+
+    ///! todo meta要素への対応
 
     /// EPUBのパッケージドキュメントに記載された<metadata>要素, およびそのコンテンツ
     #[derive(Debug)]
@@ -155,6 +157,7 @@ pub mod meta_data {
         /// 指定されたレンディションのコンテンツの言語
         languages: Vec<Language>,
         attributes: HashMap<OwnedName, String>,
+        optionals: Vec<OptionalElement>,
     }
 
     impl Metadata {
@@ -209,12 +212,17 @@ pub mod meta_data {
                     err_msg: "Language not found.".to_string()
                 })?;
 
+            let optionals = meta_data_elem.children.iter()
+                .flat_map(|e| OptionalElement::try_from(e))
+                .collect();
+
             Ok(Self {
                 unique_identifier,
                 identifier,
                 attributes,
                 titles,
                 languages,
+                optionals,
             })
         }
 
@@ -304,11 +312,11 @@ pub mod meta_data {
 
         fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
             Self::from_xml_element(value, |elem, attrs| {
-                    let identifier = elem.inner_text();
-                    let id = Self::id(attrs);
+                let identifier = elem.inner_text();
+                let id = Self::id(attrs);
 
-                    Identifier { id, identifier }
-                })
+                Identifier { id, identifier }
+            })
                 .ok_or(())
         }
     }
@@ -336,14 +344,14 @@ pub mod meta_data {
         type Error = ();
 
         fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
-            Self::from_xml_element(value,|elem, attrs| {
-                    let title = elem.inner_text();
-                    let dir = Self::dir(attrs);
-                    let id = Self::id(attrs);
-                    let xml_lang = Self::xml_lang(attrs);
+            Self::from_xml_element(value, |elem, attrs| {
+                let title = elem.inner_text();
+                let dir = Self::dir(attrs);
+                let id = Self::id(attrs);
+                let xml_lang = Self::xml_lang(attrs);
 
-                    Title { title, dir, id, xml_lang }
-                })
+                Title { title, dir, id, xml_lang }
+            })
                 .ok_or(())
         }
     }
@@ -370,13 +378,106 @@ pub mod meta_data {
         type Error = ();
 
         fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
-            Self::from_xml_element(value,|elem, attrs| {
-                    let language = value.inner_text();
-                    let id = Self::id(attrs);
+            Self::from_xml_element(value, |elem, attrs| {
+                let language = elem.inner_text();
+                let id = Self::id(attrs);
 
-                    Language { language, id }
-                })
+                Language { language, id }
+            })
                 .ok_or(())
+        }
+    }
+
+    #[allow(non_camel_case_types)]
+    #[derive(Eq, PartialEq, Copy, Clone, Debug, Hash)]
+    pub enum OptionalElementName {
+        contributor,
+        coverage,
+        creator,
+        date,
+        description,
+        format,
+        publisher,
+        relation,
+        rights,
+        source,
+        subject,
+        type_,
+    }
+
+    impl FromStr for OptionalElementName {
+        type Err = ();
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            match s {
+                "contributor" => Ok(OptionalElementName::contributor),
+                "coverage" => Ok(OptionalElementName::coverage),
+                "creator" => Ok(OptionalElementName::creator),
+                "date" => Ok(OptionalElementName::date),
+                "description" => Ok(OptionalElementName::description),
+                "format" => Ok(OptionalElementName::format),
+                "publisher" => Ok(OptionalElementName::publisher),
+                "relation" => Ok(OptionalElementName::relation),
+                "rights" => Ok(OptionalElementName::rights),
+                "source" => Ok(OptionalElementName::source),
+                "subject" => Ok(OptionalElementName::subject),
+                "type" => Ok(OptionalElementName::type_),
+                _ => Err(())
+            }
+        }
+    }
+
+    impl ToString for OptionalElementName {
+        fn to_string(&self) -> String {
+            match &self {
+                OptionalElementName::type_ => "type".to_string(),
+                _ => format!("{:?}", &self)
+            }
+        }
+    }
+
+    /// Attributes of contributor, coverage, creator, description,
+    /// publisher, relation, rights, and subject.
+    #[derive(Debug, Clone, Hash, Eq, PartialEq)]
+    pub struct OptionalElement {
+        name: OptionalElementName,
+        value: String,
+        dir: Option<Dir>,
+        id: Option<String>,
+        xml_lang: Option<String>,
+    }
+
+    impl TryFrom<&XmlElement> for OptionalElement {
+        type Error = ();
+
+        fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
+            match &value.event {
+                XmlEvent::StartElement {
+                    name,
+                    attributes, ..
+                } if name.prefix == Some(String::from("dc"))
+                    && name.namespace == Some(String::from("http://purl.org/dc/elements/1.1/"))
+                => if let Ok(name) = OptionalElementName::from_str(&name.local_name) {
+                    let value = value.inner_text();
+                    // let dir = Element::dir(attributes);
+                    // let id =  Element::id(attributes);
+                    // let xml_lang = Element::xml_lang(attributes);
+                    let dir = Identifier::dir(attributes);
+                    let id = Identifier::id(attributes);
+                    let xml_lang = Identifier::xml_lang(attributes);
+
+                    Ok(OptionalElement {
+                        name,
+                        value,
+                        dir,
+                        id,
+                        xml_lang,
+                    })
+                } else {
+                    Err(())
+                }
+                _ => Err(())
+            }
         }
     }
 
@@ -440,6 +541,74 @@ pub mod meta_data {
                     id: None,
                 };
                 assert_eq!(Some(&language), pd.meta_data.language());
+            } else {
+                debug_assert!(false, "No Package Documents");
+            }
+
+            Ok(())
+        }
+
+        #[test]
+        fn optionals() -> Result<(), Error> {
+            let reader = reader()?;
+
+            if let Some(pd) = reader.package_document() {
+                use OptionalElementName::*;
+                let optionals = &pd.meta_data.optionals.iter()
+                    .collect::<std::collections::HashSet<&OptionalElement>>();
+                let correct =
+                    vec![OptionalElement {
+                        name: creator,
+                        value: "Charles Madison Curry".into(),
+                        dir: None,
+                        id: Some("curry".into()),
+                        xml_lang: None,
+                    },
+                         OptionalElement {
+                             name: creator,
+                             value: "Erle Elsworth Clippinger".into(),
+                             dir: None,
+                             id: Some("clippinger".into()),
+                             xml_lang: None,
+                         },
+                         OptionalElement {
+                            name: date,
+                            value: "2008-05-20".into(),
+                            dir: None,
+                            id: None,
+                            xml_lang: None,
+                        },
+                         OptionalElement {
+                             name: subject,
+                             value: "Children -- Books and reading".into(),
+                             dir: None,
+                             id: None,
+                             xml_lang: None,
+                         },
+                         OptionalElement {
+                            name: subject,
+                            value: "Children\'s literature -- Study and teaching".into(),
+                            dir: None,
+                            id: None,
+                            xml_lang: None,
+                        },
+                         OptionalElement {
+                             name: source,
+                             value: "http://www.gutenberg.org/files/25545/25545-h/25545-h.htm".into(),
+                             dir: None,
+                             id: None,
+                             xml_lang: None,
+                         },
+                         OptionalElement {
+                             name: rights,
+                             value: "Public domain in the USA.".into(),
+                             dir: None,
+                             id: None,
+                             xml_lang: None,
+                         }];
+                let correct_set = &correct.iter()
+                        .collect::<std::collections::HashSet<&OptionalElement>>();
+                assert_eq!(correct_set, optionals);
             } else {
                 debug_assert!(false, "No Package Documents");
             }
