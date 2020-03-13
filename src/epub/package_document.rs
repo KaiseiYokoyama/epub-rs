@@ -142,6 +142,7 @@ impl TryFrom<&str> for Dir {
 pub mod meta_data {
     use super::*;
     use failure::_core::convert::{TryFrom, TryInto};
+    use xml::attribute::OwnedAttribute;
 
     /// EPUBのパッケージドキュメントに記載された<metadata>要素, およびそのコンテンツ
     #[derive(Debug)]
@@ -238,6 +239,48 @@ pub mod meta_data {
         pub fn languages(&self) -> &Vec<Language> { &self.languages }
     }
 
+    trait Element {
+        fn name() -> OwnedName;
+        fn from_xml_element<T, F>(value: &XmlElement, f: F) -> Option<T>
+            where T: Element,
+                  F: FnOnce(&XmlElement, &Vec<OwnedAttribute>) -> T
+        {
+            match &value.event {
+                XmlEvent::StartElement {
+                    name,
+                    attributes, ..
+                } if name == &Self::name() => {
+                    Some(f(value, attributes))
+                }
+                _ => None,
+            }
+        }
+        fn id(attrs: &Vec<OwnedAttribute>) -> Option<String> {
+            attrs.iter()
+                .find_map(|a| {
+                    if &a.name.local_name == "id" {
+                        Some(a.value.to_string())
+                    } else { None }
+                })
+        }
+        fn dir(attrs: &Vec<OwnedAttribute>) -> Option<Dir> {
+            attrs.iter()
+                .find_map(|a|
+                    if &a.name.local_name == "dir" {
+                        a.value.as_str().try_into().ok()
+                    } else { None }
+                )
+        }
+        fn xml_lang(attrs: &Vec<OwnedAttribute>) -> Option<String> {
+            attrs.iter()
+                .find_map(|a|
+                    if &a.name.local_name == "lang" && &a.name.prefix == &Some("xml".to_string()) {
+                        Some(a.value.to_string())
+                    } else { None }
+                )
+        }
+    }
+
     /// The identifier element contains an identifier associated with the given Rendition,
     /// such as a UUID, DOI or ISBN.
     #[derive(Debug, Clone, Eq, PartialEq)]
@@ -246,29 +289,27 @@ pub mod meta_data {
         pub identifier: String,
     }
 
+    impl Element for Identifier {
+        fn name() -> OwnedName {
+            OwnedName {
+                prefix: Some(String::from("dc")),
+                local_name: String::from("identifier"),
+                namespace: Some(String::from("http://purl.org/dc/elements/1.1/")),
+            }
+        }
+    }
+
     impl TryFrom<&XmlElement> for Identifier {
         type Error = ();
 
         fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
-            match &value.event {
-                XmlEvent::StartElement {
-                    name,
-                    attributes, ..
-                } => {
-                    if &name.prefix == &Some("dc".to_string()) && &name.local_name == "identifier" {
-                        let identifier = value.inner_text();
-                        let id = attributes.iter()
-                            .find_map(|a| {
-                                if &a.name.local_name == "id" {
-                                    Some(a.value.to_string())
-                                } else { None }
-                            });
+            Self::from_xml_element(value, |elem, attrs| {
+                    let identifier = elem.inner_text();
+                    let id = Self::id(attrs);
 
-                        Ok(Identifier { id, identifier })
-                    } else { Err(()) }
-                }
-                _ => Err(())
-            }
+                    Identifier { id, identifier }
+                })
+                .ok_or(())
         }
     }
 
@@ -281,50 +322,29 @@ pub mod meta_data {
         pub xml_lang: Option<String>,
     }
 
+    impl Element for Title {
+        fn name() -> OwnedName {
+            OwnedName {
+                prefix: Some(String::from("dc")),
+                local_name: String::from("title"),
+                namespace: Some(String::from("http://purl.org/dc/elements/1.1/")),
+            }
+        }
+    }
+
     impl TryFrom<&XmlElement> for Title {
         type Error = ();
 
         fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
-            // println!("{}, {:?}", line!(), &value);
-            match &value.event {
-                XmlEvent::StartElement {
-                    name,
-                    attributes, ..
-                } => {
-                    if &name.prefix == &Some("dc".to_string()) && &name.local_name == "title" {
-                        let title = value.inner_text();
+            Self::from_xml_element(value,|elem, attrs| {
+                    let title = elem.inner_text();
+                    let dir = Self::dir(attrs);
+                    let id = Self::id(attrs);
+                    let xml_lang = Self::xml_lang(attrs);
 
-                        let dir = attributes.iter()
-                            .find_map(|a|
-                                if &a.name.local_name == "dir" {
-                                    a.value.as_str().try_into().ok()
-                                } else { None }
-                            );
-
-                        let id = attributes.iter()
-                            .find_map(|a| {
-                                if &a.name.local_name == "id" {
-                                    Some(a.value.to_string())
-                                } else { None }
-                            });
-
-                        let xml_lang = attributes.iter()
-                            .find_map(|a|
-                                if &a.name.local_name == "lang" && &a.name.prefix == &Some("xml".to_string()) {
-                                    Some(a.value.to_string())
-                                } else { None }
-                            );
-
-                        Ok(Title {
-                            title,
-                            dir,
-                            id,
-                            xml_lang,
-                        })
-                    } else { Err(()) }
-                }
-                _ => Err(())
-            }
+                    Title { title, dir, id, xml_lang }
+                })
+                .ok_or(())
         }
     }
 
@@ -336,31 +356,27 @@ pub mod meta_data {
         id: Option<String>,
     }
 
+    impl Element for Language {
+        fn name() -> OwnedName {
+            OwnedName {
+                prefix: Some(String::from("dc")),
+                local_name: String::from("language"),
+                namespace: Some(String::from("http://purl.org/dc/elements/1.1/")),
+            }
+        }
+    }
+
     impl TryFrom<&XmlElement> for Language {
         type Error = ();
 
         fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
-            match &value.event {
-                XmlEvent::StartElement {
-                    name,
-                    attributes,..
-                } if &name.prefix ==&Some("dc".to_string())
-                    && &name.local_name == "language" => {
+            Self::from_xml_element(value,|elem, attrs| {
                     let language = value.inner_text();
-                    let id = attributes.iter()
-                        .find_map(|a| {
-                            if &a.name.local_name == "id" {
-                                Some(a.value.to_string())
-                            } else { None }
-                        });
+                    let id = Self::id(attrs);
 
-                    Ok(Language {
-                        language,
-                        id,
-                    })
-                }
-                _ => Err(())
-            }
+                    Language { language, id }
+                })
+                .ok_or(())
         }
     }
 
@@ -385,7 +401,7 @@ pub mod meta_data {
             if let Some(pd) = reader.package_document() {
                 let unique_id = Identifier {
                     id: Some("id".to_string()),
-                    identifier: "http://www.gutenberg.org/ebooks/25545".to_string()
+                    identifier: "http://www.gutenberg.org/ebooks/25545".to_string(),
                 };
                 assert_eq!(&unique_id, pd.meta_data.unique_identifier());
             } else {
@@ -406,7 +422,7 @@ pub mod meta_data {
                     id: Some("t1".into()),
                     xml_lang: None,
                 };
-                assert_eq!(Some(&title),pd.meta_data.title());
+                assert_eq!(Some(&title), pd.meta_data.title());
             } else {
                 debug_assert!(false, "No Package Documents");
             }
@@ -421,7 +437,7 @@ pub mod meta_data {
             if let Some(pd) = reader.package_document() {
                 let language = Language {
                     language: "en".into(),
-                    id: None
+                    id: None,
                 };
                 assert_eq!(Some(&language), pd.meta_data.language());
             } else {
