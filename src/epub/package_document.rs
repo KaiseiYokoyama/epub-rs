@@ -10,6 +10,7 @@ use xml::reader::XmlEvent;
 use failure::Error;
 use meta_data::Metadata;
 use manifest::Manifest;
+use spine::Spine;
 use failure::_core::convert::{TryFrom, TryInto};
 
 #[derive(Debug)]
@@ -19,6 +20,7 @@ pub struct PackageDocument {
     pub version: String,
     pub meta_data: Metadata,
     pub manifest: Manifest,
+    pub spine: Spine,
 }
 
 impl PackageDocument {
@@ -72,6 +74,8 @@ impl PackageDocument {
 
         let manifest = Manifest::new(package_element)?;
 
+        let spine = Spine::new(package_element)?;
+
         Ok(
             Self {
                 attributes,
@@ -79,6 +83,7 @@ impl PackageDocument {
                 version,
                 meta_data,
                 manifest,
+                spine,
             }
         )
     }
@@ -876,6 +881,202 @@ pub mod manifest {
                     },
                 };
                 assert_eq!(&correct, manifest);
+            } else {
+                debug_assert!(false, "No Package Documents.")
+            }
+
+            Ok(())
+        }
+    }
+}
+
+pub mod spine {
+    use super::*;
+    use failure::_core::str::FromStr;
+
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct Spine {
+        id: Option<String>,
+        page_progression_direction: Option<PageProgressionDirection>,
+        items: Vec<ItemRef>,
+    }
+
+    impl Spine {
+        pub fn new(package_element: &XmlElement) -> Result<Self, Error> {
+            let (spine_elem, attributes) = package_element.children.iter()
+                .find_map(|e| match &e.event {
+                    XmlEvent::StartElement {
+                        name,
+                        attributes, ..
+                    } => if &name.local_name == "spine" {
+                        Some((e, attributes))
+                    } else {
+                        None
+                    }
+                    _ => None
+                })
+                .ok_or(EPUBError::PackageDocumentError {
+                    err_msg: "Spine element not found.".to_string()
+                })?;
+
+            let id = attributes.iter()
+                .find_map(|a| if &a.name.local_name == "id" {
+                    Some(a.value.to_string())
+                } else { None });
+
+            let page_progression_direction = attributes.iter()
+                .find_map(|a|
+                    if &a.name.local_name == "page-progression-direction" {
+                        PageProgressionDirection::from_str(&a.value).ok()
+                    } else { None });
+
+            let items = spine_elem.children.iter()
+                .flat_map(|e| ItemRef::try_from(e).ok())
+                .collect();
+
+            Ok(Self {
+                id,
+                page_progression_direction,
+                items,
+            })
+        }
+    }
+
+    #[derive(Debug, Eq, PartialEq)]
+    pub struct ItemRef {
+        id: Option<String>,
+        idref: String,
+        linear: Option<Linear>,
+        properties: Option<String>
+    }
+
+    impl Element for ItemRef {
+        fn name() -> OwnedName {
+            OwnedName {
+                prefix: None,
+                local_name: String::from("itemref"),
+                namespace: Some(String::from("http://www.idpf.org/2007/opf")),
+            }
+        }
+    }
+
+    impl TryFrom<&XmlElement> for ItemRef {
+        type Error = ();
+
+        fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
+            ItemRef::from_xml_element(value, |_elem, attrs| {
+                let id = ItemRef::id(attrs);
+                let idref = ItemRef::get_attr(attrs, "idref")?;
+                let linear = ItemRef::get_attr(attrs, "linear")
+                    .map(|s| Linear::from_str(&s).ok())
+                    .flatten();
+                let properties = ItemRef::get_attr(attrs, "properties");
+
+                Some(ItemRef {id, idref, linear, properties})
+            })
+                .flatten()
+                .ok_or(())
+        }
+    }
+
+    #[allow(non_camel_case_types)]
+    #[derive(Eq, PartialEq, Copy, Clone, Debug, Hash)]
+    pub enum PageProgressionDirection {
+        ltr,
+        rtl,
+        default,
+    }
+
+    impl FromStr for PageProgressionDirection {
+        type Err = ();
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            match s {
+                "ltr" => Ok(PageProgressionDirection::ltr),
+                "rtl" => Ok(PageProgressionDirection::rtl),
+                "default" => Ok(PageProgressionDirection::default),
+                _ => Err(())
+            }
+        }
+    }
+
+    impl ToString for PageProgressionDirection {
+        fn to_string(&self) -> String {
+            format!("{:?}", &self)
+        }
+    }
+
+    #[allow(non_camel_case_types)]
+    #[derive(Eq, PartialEq, Copy, Clone, Debug, Hash)]
+    pub enum Linear {
+        yes, no
+    }
+
+    impl Default for Linear {
+        fn default() -> Self {
+            Linear::yes
+        }
+    }
+
+    impl FromStr for Linear {
+        type Err = ();
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            match s {
+                "yes" => Ok(Linear::yes),
+                "no" => Ok(Linear::no),
+                _ => Err(())
+            }
+        }
+    }
+
+    impl ToString for Linear {
+        fn to_string(&self) -> String {
+            format!("{:?}", &self)
+        }
+    }
+
+    // todo impl properties
+
+    #[cfg(test)]
+    mod test {
+        use super::*;
+        use crate::read::EPUBReader;
+        use failure::Error;
+
+        const PATH: &'static str = "tests/data/childrens-literature.epub";
+
+        #[test]
+        fn spine() -> Result<(), Error> {
+            let reader = EPUBReader::new(PATH)?;
+
+            if let Some(pd) = reader.package_document() {
+                let spine = &pd.spine;
+                let correct = Spine {
+                    id: None,
+                    page_progression_direction: None,
+                    items: vec![
+                        ItemRef {
+                            id: None,
+                            idref: "cover".into(),
+                            linear: None,
+                            properties: None
+                        },
+                        ItemRef {
+                            id: None,
+                            idref: "nav".into(),
+                            linear: None,
+                            properties: None
+                        },
+                        ItemRef {
+                            id: None,
+                            idref: "s04".into(),
+                            linear: None,
+                            properties: None
+                        }
+                    ]
+                };
+                assert_eq!(&correct, spine)
             } else {
                 debug_assert!(false, "No Package Documents.")
             }
