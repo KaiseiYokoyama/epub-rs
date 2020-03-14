@@ -1,9 +1,6 @@
-use epub_rs::*;
+use epub_rs::prelude::*;
 
 fn main() -> Result<(), failure::Error>{
-    use std::io::{Read, BufReader};
-    use zip::ZipArchive;
-
     let path = "tests/data/childrens-literature.epub";
     // let file = std::fs::File::open(path)?;
     // let buf_reader = BufReader::new(file);
@@ -13,7 +10,10 @@ fn main() -> Result<(), failure::Error>{
     //     .inspect(|n| println!("{}", n))
     //     .last();
 
-    let mut epub = EPUBReader::new(path)?;
+    let epub = EPUBReader::new(path)?;
     // println!("{:?}", epub.package_document_paths());
+    for package_document in epub.package_documents {
+        println!("{:?}", package_document);
+    }
     Ok(())
 }

@@ -1,0 +1,35 @@
+name: Test
+
+on:
+  push:
+    branches: [ master, dev/**, feature/** ]
+  pull_request:
+    branches: [ master, dev/** ]
+
+jobs:
+  test-on-mac:
+    
+    runs-on: macos-latest
+    
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run tests
+        run: cargo test --verbose
+        
+  test-on-ubuntu:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run tests
+      run: cargo test --verbose
+  
+  test-on-windows:
+    
+    runs-on: windows-latest
+    
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run tests
+        run: cargo test --verbose
