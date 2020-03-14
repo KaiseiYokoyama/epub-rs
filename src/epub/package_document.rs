@@ -207,6 +207,7 @@ pub mod meta_data {
         languages: Vec<Language>,
         attributes: HashMap<OwnedName, String>,
         optionals: Vec<OptionalElement>,
+        meta: Vec<MetaElem>,
     }
 
     impl Metadata {
@@ -230,6 +231,10 @@ pub mod meta_data {
             let attributes = attributes.into_iter()
                 .map(|atr| (atr.name.clone(), atr.value.clone()))
                 .collect::<HashMap<OwnedName, String>>();
+
+            let meta = meta_data_elem.children.iter()
+                .flat_map(|e| MetaElem::try_from(e))
+                .collect::<Vec<MetaElem>>();
 
             let identifier = meta_data_elem.children.iter()
                 .flat_map(|e| Identifier::try_from(e))
@@ -272,6 +277,7 @@ pub mod meta_data {
                 titles,
                 languages,
                 optionals,
+                meta,
             })
         }
 
@@ -294,6 +300,105 @@ pub mod meta_data {
         pub fn language(&self) -> Option<&Language> { self.languages.get(0) }
 
         pub fn languages(&self) -> &Vec<Language> { &self.languages }
+    }
+
+    #[derive(Debug, Clone, Eq, PartialEq)]
+    pub struct MetaElem {
+        value: String,
+        dir: Option<Dir>,
+        id: Option<String>,
+        property: MetaDataProperty,
+        refines: Option<String>,
+        scheme: Option<String>,
+        xml_lang: Option<String>,
+    }
+
+    impl Element for MetaElem {
+        fn name() -> OwnedName {
+            OwnedName {
+                prefix: None,
+                local_name: "meta".into(),
+                namespace: Some(String::from("http://purl.org/dc/elements/1.1/")),
+            }
+        }
+    }
+
+    impl TryFrom<&XmlElement> for MetaElem {
+        type Error = ();
+
+        fn try_from(value: &XmlElement) -> Result<Self, Self::Error> {
+            Self::from_xml_element(value, |elem, attrs| {
+                let value = elem.inner_text();
+                let dir = Self::dir(attrs);
+                let id = Self::id(attrs);
+                let property: MetaDataProperty = Self::get_attr(attrs, "property")
+                    .map(|s| MetaDataProperty::from_str(&s).ok())
+                    .flatten()?;
+                let refines = Self::get_attr(attrs, "refines");
+                let scheme = Self::get_attr(attrs, "scheme");
+                let xml_lang = Self::get_attr(attrs, "xml:lang");
+
+                Some(MetaElem {
+                    value,
+                    dir,
+                    id,
+                    property,
+                    refines,
+                    scheme,
+                    xml_lang
+                })
+            })
+                .ok_or(())?
+                .ok_or(())
+        }
+    }
+
+    #[allow(non_camel_case_types)]
+    #[derive(Eq, PartialEq, Copy, Clone, Debug, Hash)]
+    pub enum MetaDataProperty {
+        alternate_script,
+        authority,
+        belongs_to_collection,
+        collection_type,
+        display_seq,
+        file_as,
+        group_position,
+        identifier_type,
+        meta_auth,
+        role,
+        source_of,
+        term,
+        title_type,
+    }
+
+    impl ToString for MetaDataProperty {
+        fn to_string(&self) -> String {
+            format!("{:?}", &self).replace("_", "-")
+        }
+    }
+
+    impl FromStr for MetaDataProperty {
+        type Err = ();
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            use MetaDataProperty::*;
+            match s {
+                "alternate-script" => Ok(alternate_script),
+                "authority" => Ok(authority),
+                "belongs-to-collection" => Ok(belongs_to_collection),
+                "collection-type" => Ok(collection_type),
+                "display-seq" => Ok(display_seq),
+                "file-as" => Ok(file_as),
+                "group-position" => Ok(group_position),
+                "identifier-type" => Ok(identifier_type),
+                "meta-auth" => Ok(meta_auth),
+                "role" => Ok(role),
+                "source-of" => Ok(source_of),
+                "term" => Ok(term),
+                "title-type" => Ok(title_type),
+                _ => Err(())
+            }
+        }
     }
 
     /// The identifier element contains an identifier associated with the given Rendition,
@@ -667,11 +772,11 @@ pub mod manifest {
                 .collect();
 
             let cover_image = items.iter()
-                .find(|i| i.properties.contains(&Property::cover_image))
+                .find(|i| i.properties.contains(&ManifestItemProperty::cover_image))
                 .cloned();
 
             let nav = items.iter()
-                .find(|i| i.properties.contains(&Property::nav))
+                .find(|i| i.properties.contains(&ManifestItemProperty::nav))
                 .ok_or(EPUBError::PackageDocumentError {
                     err_msg: "Navigation item not found in <manifest>".to_string()
                 })?
@@ -718,7 +823,7 @@ pub mod manifest {
         id: String,
         media_overlay: Option<String>,
         media_type: MediaType,
-        properties: Vec<Property>,
+        properties: Vec<ManifestItemProperty>,
     }
 
     impl Element for Item {
@@ -754,8 +859,8 @@ pub mod manifest {
                 let properties = Item::get_attr(attrs, "properties")
                     .iter()
                     .flat_map(|s| s.split_whitespace())
-                    .flat_map(|s| Property::from_str(s))
-                    .collect::<Vec<Property>>();
+                    .flat_map(|s| ManifestItemProperty::from_str(s))
+                    .collect::<Vec<ManifestItemProperty>>();
 
                 Some(
                     Item {
@@ -775,7 +880,7 @@ pub mod manifest {
 
     #[allow(non_camel_case_types)]
     #[derive(Eq, PartialEq, Copy, Clone, Debug, Hash)]
-    pub enum Property {
+    pub enum ManifestItemProperty {
         cover_image,
         mathml,
         nav,
@@ -785,30 +890,28 @@ pub mod manifest {
         switch,
     }
 
-    impl FromStr for Property {
+    impl FromStr for ManifestItemProperty {
         type Err = ();
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            use Property::*;
             match s {
-                "cover-image" => Ok(cover_image),
-                "mathml" => Ok(mathml),
-                "nav" => Ok(nav),
-                "remote_resources" => Ok(remote_resources),
-                "scripted" => Ok(scripted),
-                "svg" => Ok(svg),
-                "switch" => Ok(switch),
+                "cover-image" => Ok(ManifestItemProperty::cover_image),
+                "mathml" => Ok(ManifestItemProperty::mathml),
+                "nav" => Ok(ManifestItemProperty::nav),
+                "remote_resources" => Ok(ManifestItemProperty::remote_resources),
+                "scripted" => Ok(ManifestItemProperty::scripted),
+                "svg" => Ok(ManifestItemProperty::svg),
+                "switch" => Ok(ManifestItemProperty::switch),
                 _ => Err(())
             }
         }
     }
 
-    impl ToString for Property {
+    impl ToString for ManifestItemProperty {
         fn to_string(&self) -> String {
-            use Property::*;
             match &self {
-                cover_image => "cover-image".to_string(),
-                remote_resources => "remote-resources".to_string(),
+                ManifestItemProperty::cover_image => "cover-image".to_string(),
+                ManifestItemProperty::remote_resources => "remote-resources".to_string(),
                 _ => format!("{:?}", &self)
             }
         }
@@ -830,11 +933,11 @@ pub mod manifest {
 
         #[test]
         fn manifest() -> Result<(), Error> {
-            use super::Property::*;
+            use super::ManifestItemProperty::*;
             use crate::epub::media_type::{MediaType::*,
-                                    ImageType::*,
-                                    ApplicationType::*,
-                                    TextType::*};
+                                          ImageType::*,
+                                          ApplicationType::*,
+                                          TextType::*};
 
             let reader = reader()?;
 
