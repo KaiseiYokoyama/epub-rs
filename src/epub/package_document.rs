@@ -738,8 +738,8 @@ pub mod manifest {
     ///! レンディションを構成する出版物リソースの完全なリスト
     #[derive(Debug, Eq, PartialEq)]
     pub struct Manifest {
-        id: Option<String>,
-        items: HashSet<Item>,
+        pub id: Option<String>,
+        pub items: HashSet<Item>,
         cover_image: Option<Item>,
         nav: Item,
     }
@@ -818,12 +818,12 @@ pub mod manifest {
 
     #[derive(Clone, Eq, PartialEq, Hash, Debug)]
     pub struct Item {
-        fallback: Option<String>,
-        href: String,
-        id: String,
-        media_overlay: Option<String>,
-        media_type: MediaType,
-        properties: Vec<ManifestItemProperty>,
+        pub fallback: Option<String>,
+        pub href: String,
+        pub id: String,
+        pub media_overlay: Option<String>,
+        pub media_type: MediaType,
+        pub properties: Vec<ManifestItemProperty>,
     }
 
     impl Element for Item {

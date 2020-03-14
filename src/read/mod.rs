@@ -4,10 +4,11 @@ use std::io::{Read, Seek, BufReader};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use zip::read::ZipArchive;
+use zip::read::{ZipArchive, ZipFile};
 
 use failure::Error;
 use failure::_core::ops::Deref;
+use std::collections::HashSet;
 
 #[derive(Debug)]
 pub struct EPUBReader<R: Read + Seek> {
@@ -22,6 +23,14 @@ impl<R: Read + Seek> EPUBReader<R> {
 
     pub fn package_document(&self) -> Option<&PackageDocument> {
         self.package_documents.get(0)
+    }
+
+    pub fn resources(&self) -> HashSet<PathBuf> {
+        if let Some(pd) = self.package_document() {
+            pd.manifest.items.iter()
+                .map(|i| PathBuf::from(&i.href))
+                .collect()
+        } else { HashSet::new() }
     }
 }
 
@@ -165,5 +174,39 @@ impl<R: Read + Seek> Deref for EPUBReader<R> {
 
     fn deref(&self) -> &Self::Target {
         &self.archive
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PATH: &'static str = "tests/data/childrens-literature.epub";
+
+    fn reader() -> Result<EPUBReader<BufReader<File>>, Error> {
+        EPUBReader::new(PATH)
+    }
+
+    #[test]
+    fn resources() -> Result<(), Error> {
+        let reader = reader()?;
+
+        let resources = reader.resources();
+        let correct:HashSet<PathBuf> = vec![
+            "images/cover.png".into(),
+            "css/epub.css".into(),
+            "css/nav.css".into(),
+            "cover.xhtml".into(),
+            "s04.xhtml".into(),
+            "nav.xhtml".into(),
+            // `.ncx`ファイルには非対応
+            // "toc.ncx".into()
+        ].into_iter().collect();
+
+        assert_eq!(correct.difference(&resources).next(), None);
+        // HashSetのEq実装は順序を参照している(中身が同じでも順序が違うと==がfalseになる)
+        // assert_eq!(&correct, &resources);
+
+        Ok(())
     }
 }
