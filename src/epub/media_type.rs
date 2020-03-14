@@ -12,6 +12,15 @@ pub enum MediaType {
     NonCoreMediaType(String),
 }
 
+impl MediaType {
+    pub fn is_core_media_type(&self) -> bool {
+        match &self {
+            MediaType::NonCoreMediaType(_) => false,
+            _ => true,
+        }
+    }
+}
+
 impl FromStr for MediaType {
     type Err = ();
 

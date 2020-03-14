@@ -1,12 +1,10 @@
 pub mod read;
 pub mod epub;
-pub mod media_type;
 
 pub mod prelude {
     pub use crate::EPUBError;
     pub use crate::read::EPUBReader;
     pub use crate::epub::*;
-    pub use crate::media_type::*;
 }
 
 use failure::Fail;

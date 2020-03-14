@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::Read;
 
-use crate::{EPUBError, util::*};
+use crate::{EPUBError, util::*, epub::*};
 
 use xml::name::OwnedName;
 use xml::attribute::OwnedAttribute;
@@ -628,7 +628,6 @@ pub mod meta_data {
 pub mod manifest {
     use super::*;
     use std::collections::HashSet;
-    use crate::media_type::MediaType;
     use failure::_core::str::FromStr;
 
     ///! レンディションを構成する出版物リソースの完全なリスト
@@ -832,7 +831,7 @@ pub mod manifest {
         #[test]
         fn manifest() -> Result<(), Error> {
             use super::Property::*;
-            use crate::media_type::{MediaType::*,
+            use crate::epub::media_type::{MediaType::*,
                                     ImageType::*,
                                     ApplicationType::*,
                                     TextType::*};
