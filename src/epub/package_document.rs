@@ -678,6 +678,36 @@ pub mod manifest {
                 })?
                 .clone();
 
+            // check fallback chain
+            let map = items.iter()
+                .map(|i| (&i.id, i))
+                .collect::<HashMap<_, _>>();
+            map.iter()
+                .try_for_each(|(_, item)| {
+                    fn chain(item: &&Item, map: &HashMap<&String, &Item>, vec: &mut Vec<String>) -> Result<(), failure::Error> {
+                        if item.media_type.is_core_media_type() {
+                            Ok(())
+                        } else {
+                            let fallback_id = item.fallback.clone().ok_or(EPUBError::PackageDocumentError {
+                                err_msg: format!("Fallback not found in non core media type <item>: {:?}", &item),
+                            })?;
+                            let fallback = map.get(&fallback_id).ok_or(EPUBError::PackageDocumentError {
+                                err_msg: format!("Fallback {} is not found", fallback_id)
+                            })?;
+                            if vec.contains(&fallback_id) {
+                                return Err(EPUBError::PackageDocumentError {
+                                    err_msg: format!("Fallback chain has circular-references: {:?}", vec)
+                                }.into());
+                            } else {
+                                vec.push(fallback_id);
+                                chain(fallback, map, vec)
+                            }
+                        }
+                    };
+                    let mut history = Vec::new();
+                    chain(item, &map, &mut history)
+                })?;
+
             Ok(Self { id, items, cover_image, nav })
         }
     }
@@ -947,7 +977,7 @@ pub mod spine {
         id: Option<String>,
         idref: String,
         linear: Option<Linear>,
-        properties: Option<String>
+        properties: Option<String>,
     }
 
     impl Element for ItemRef {
@@ -972,7 +1002,7 @@ pub mod spine {
                     .flatten();
                 let properties = ItemRef::get_attr(attrs, "properties");
 
-                Some(ItemRef {id, idref, linear, properties})
+                Some(ItemRef { id, idref, linear, properties })
             })
                 .flatten()
                 .ok_or(())
@@ -1009,7 +1039,8 @@ pub mod spine {
     #[allow(non_camel_case_types)]
     #[derive(Eq, PartialEq, Copy, Clone, Debug, Hash)]
     pub enum Linear {
-        yes, no
+        yes,
+        no,
     }
 
     impl Default for Linear {
@@ -1060,21 +1091,21 @@ pub mod spine {
                             id: None,
                             idref: "cover".into(),
                             linear: None,
-                            properties: None
+                            properties: None,
                         },
                         ItemRef {
                             id: None,
                             idref: "nav".into(),
                             linear: None,
-                            properties: None
+                            properties: None,
                         },
                         ItemRef {
                             id: None,
                             idref: "s04".into(),
                             linear: None,
-                            properties: None
+                            properties: None,
                         }
-                    ]
+                    ],
                 };
                 assert_eq!(&correct, spine)
             } else {
@@ -1085,3 +1116,5 @@ pub mod spine {
         }
     }
 }
+
+// todo collection 要素の実装
