@@ -8,7 +8,7 @@ use zip::read::{ZipArchive, ZipFile};
 
 use failure::Error;
 use failure::_core::ops::Deref;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 
 #[derive(Debug)]
 pub struct EPUBReader<R: Read + Seek> {
@@ -31,6 +31,20 @@ impl<R: Read + Seek> EPUBReader<R> {
                 .map(|i| PathBuf::from(&i.href))
                 .collect()
         } else { HashSet::new() }
+    }
+
+    pub fn spine_resources(&self) -> Vec<PathBuf> {
+        if let Some(pd) = self.package_document() {
+            let resources = pd.manifest.items.iter()
+                .map(|i| (&i.id, i))
+                .collect::<HashMap<_, _>>();
+            pd.spine.items.iter()
+                .flat_map(|i| {
+                    resources.get(&i.idref)
+                        .map(|i| PathBuf::from(&i.href))
+                })
+                .collect()
+        } else { vec![] }
     }
 }
 
@@ -192,7 +206,7 @@ mod tests {
         let reader = reader()?;
 
         let resources = reader.resources();
-        let correct:HashSet<PathBuf> = vec![
+        let correct: HashSet<PathBuf> = vec![
             "images/cover.png".into(),
             "css/epub.css".into(),
             "css/nav.css".into(),
@@ -206,6 +220,22 @@ mod tests {
         assert_eq!(correct.difference(&resources).next(), None);
         // HashSetのEq実装は順序を参照している(中身が同じでも順序が違うと==がfalseになる)
         // assert_eq!(&correct, &resources);
+
+        Ok(())
+    }
+
+    #[test]
+    fn spine_resources() -> Result<(), Error> {
+        let reader = reader()?;
+
+        let resources = reader.spine_resources();
+        let correct: Vec<PathBuf> = vec![
+            "cover.xhtml".into(),
+            "nav.xhtml".into(),
+            "s04.xhtml".into(),
+        ];
+
+        assert_eq!(&correct, &resources);
 
         Ok(())
     }

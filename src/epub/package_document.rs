@@ -1028,9 +1028,9 @@ pub mod spine {
 
     #[derive(Debug, Eq, PartialEq)]
     pub struct Spine {
-        id: Option<String>,
-        page_progression_direction: Option<PageProgressionDirection>,
-        items: Vec<ItemRef>,
+        pub id: Option<String>,
+        pub page_progression_direction: Option<PageProgressionDirection>,
+        pub items: Vec<ItemRef>,
     }
 
     impl Spine {
@@ -1076,10 +1076,10 @@ pub mod spine {
 
     #[derive(Debug, Eq, PartialEq)]
     pub struct ItemRef {
-        id: Option<String>,
-        idref: String,
-        linear: Option<Linear>,
-        properties: Option<String>,
+        pub id: Option<String>,
+        pub idref: String,
+        pub linear: Option<Linear>,
+        pub properties: Option<String>,
     }
 
     impl Element for ItemRef {
