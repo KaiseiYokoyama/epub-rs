@@ -345,7 +345,7 @@ pub mod meta_data {
                     property,
                     refines,
                     scheme,
-                    xml_lang
+                    xml_lang,
                 })
             })
                 .ok_or(())?
@@ -810,6 +810,26 @@ pub mod manifest {
                     };
                     let mut history = Vec::new();
                     chain(item, &map, &mut history)
+                })?;
+
+            // check media overlay
+            map.iter()
+                .try_for_each(|(_, item)| {
+                    if let Some(media_overlay) = &item.media_overlay {
+                        if item.media_type.is_core_media_type() {
+                            map.get(media_overlay)
+                                .map(|_| ())
+                                .ok_or(EPUBError::PackageDocumentError {
+                                    err_msg: format!("Media overlay {} not found", &media_overlay)
+                                })
+                        } else {
+                            Err(EPUBError::PackageDocumentError {
+                                err_msg: format!("<item> witch has media overlay must refer EPUB contents document. :{:?}", item)
+                            }.into())
+                        }
+                    } else {
+                        Ok(())
+                    }
                 })?;
 
             Ok(Self { id, items, cover_image, nav })

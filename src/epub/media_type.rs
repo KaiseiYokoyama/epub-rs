@@ -19,6 +19,14 @@ impl MediaType {
             _ => true,
         }
     }
+
+    pub fn is_epub_contents_document(&self) -> bool {
+        match &self {
+            MediaType::Application(ApplicationType::XhtmlXml)
+            | MediaType::Image(ImageType::SVG) => true,
+            _ => false,
+        }
+    }
 }
 
 impl FromStr for MediaType {
